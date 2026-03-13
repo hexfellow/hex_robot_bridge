@@ -1,4 +1,5 @@
 hex_robo_yoco>=0.0.1,<0.1.0
+hex_robo_utils[all]>=0.3.0,<0.4.0
 websockets>=12.0
 msgpack>=1.0.0
 pillow>=9.0.0

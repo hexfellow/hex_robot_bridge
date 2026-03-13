@@ -12,10 +12,19 @@ from hex_zmq_servers import HEXARM_URDF_PATH_DICT
 from hex_robo_yoco import HEX_YOCO_DRIVER_PATH_DICT
 
 # YOCO config
-HEXARM_CFG = {"arm_type": "archer_y6", "gripper_type": "gp100_p050"}
+CONTROL_HZ = 500
+HEXARM_CFG = {"arm_type": "archer_y6", "gripper_type": "gp80"}
+MIT_CFG = {
+    "kp": [400.0, 400.0, 500.0, 200.0, 100.0, 100.0, 10.0],
+    "kd": [5.0, 5.0, 5.0, 5.0, 2.0, 2.0, 0.5],
+}
+HEXARM_DEVICE_IP = "172.18.22.245"
+HEXARM_DEVICE_LEFT_PORT = 8439
+HEXARM_DEVICE_RIGHT_PORT = 9439
 YOCO = {
     "use_sim": True,
-    "cam_type": ["empty", "empty", "empty"],
+    "control_hz": CONTROL_HZ,
+    "cam_type": ["rgb", "rgb", "rgb"],
     "srv_port": {
         "mujoco_port": 12345,
         "left_robot_port": 12346,
@@ -26,11 +35,11 @@ YOCO = {
     },
     "params": {
         "mujoco": {
-            "headless": False,
+            "headless": True,
         },
         "robot": {
-            "mit_kp": [200.0, 200.0, 250.0, 150.0, 20.0, 20.0, 20.0],
-            "mit_kd": [5.0, 5.0, 5.0, 5.0, 1.0, 1.0, 1.0],
+            "mit_kp": MIT_CFG["kp"],
+            "mit_kd": MIT_CFG["kd"],
             "arm_type": HEXARM_CFG["arm_type"],
         },
         "rgb": {
@@ -49,22 +58,16 @@ YOCO = {
     },
     "device": {
         "left_robot": {
-            "device_ip": "172.18.30.133",
-            "device_port": 8439,
+            "device_ip": HEXARM_DEVICE_IP,
+            "device_port": HEXARM_DEVICE_LEFT_PORT,
         },
         "right_robot": {
-            "device_ip": "172.18.30.133",
-            "device_port": 9439,
+            "device_ip": HEXARM_DEVICE_IP,
+            "device_port": HEXARM_DEVICE_RIGHT_PORT,
         },
-        "head_camera": {
-            "serial_number": "243422071854",
-        },
-        "left_camera": {
-            "serial_number": "243422073194",
-        },
-        "right_camera": {
-            "serial_number": "243422071878",
-        },
+        "head_camera": {},
+        "left_camera": {},
+        "right_camera": {},
     },
 }
 
@@ -76,16 +79,18 @@ LAUNCH_PARAMS_DICT = {"driver": {}}
 
 # node params
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = f"{SCRIPT_DIR}/../../.."
+BASE_DIR = f"{SCRIPT_DIR}/.."
 NODE_PARAMS_DICT = {
     # cli
-    "e3_desktop_cli": {
-        "name": "e3_desktop_cli",
-        "node_path": f"{BASE_DIR}/examples/basic/e3_desktop/cli.py",
-        "cfg_path": f"{BASE_DIR}/examples/basic/e3_desktop/cli.json",
+    "openpi_bridge_cli": {
+        "name": "openpi_bridge_cli",
+        "node_path": f"{BASE_DIR}/client/openpi_bridge_cli.py",
+        "cfg_path": f"{BASE_DIR}/config/openpi_bridge_cfg.json",
         "cfg": {
-            "yoco":
-            YOCO,
+            "record_cfg": {
+                "data_name": f"{BASE_DIR}/datasets/openpi_bridge",
+                "visual": CONTROL_HZ < 1000,
+            },
             "model_path":
             HEXARM_URDF_PATH_DICT[
                 f'{HEXARM_CFG["arm_type"]}_{HEXARM_CFG["gripper_type"]}'],
@@ -93,6 +98,8 @@ NODE_PARAMS_DICT = {
                 "kp": YOCO["params"]["robot"]["mit_kp"],
                 "kd": YOCO["params"]["robot"]["mit_kd"],
             },
+            "yoco":
+            YOCO,
             "net": {
                 "mujoco_net": {
                     "port": YOCO["srv_port"]["mujoco_port"]

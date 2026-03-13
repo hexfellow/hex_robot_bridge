@@ -1,0 +1,89 @@
+{
+    "record_cfg": {
+        "data_name": "datasets/openpi_bridge",
+        "visual": false
+    },
+    "mit_cfg": {
+        "kp": [
+            200.0,
+            200.0,
+            250.0,
+            150.0,
+            100.0,
+            100.0,
+            20.0
+        ],
+        "kd": [
+            5.0,
+            5.0,
+            5.0,
+            5.0,
+            5.0,
+            5.0,
+            1.0
+        ]
+    },
+    "stable_pos": [
+        0.0,
+        -1.5,
+        3.0,
+        0.07,
+        0.0,
+        0.0,
+        0.5
+    ],
+    "model_path": "path/to/model.urdf",
+    "yoco": {
+        "use_sim": true,
+        "cam_type": [
+            "empty",
+            "empty",
+            "empty"
+        ]
+    },
+    "net": {
+        "mujoco_net": {
+            "ip": "127.0.0.1",
+            "port": 12345,
+            "realtime_mode": false,
+            "deque_maxlen": 10,
+            "client_timeout_ms": 200
+        },
+        "left_robot_net": {
+            "ip": "127.0.0.1",
+            "port": 12346,
+            "realtime_mode": false,
+            "deque_maxlen": 10,
+            "client_timeout_ms": 200
+        },
+        "right_robot_net": {
+            "ip": "127.0.0.1",
+            "port": 12347,
+            "realtime_mode": false,
+            "deque_maxlen": 10,
+            "client_timeout_ms": 200
+        },
+        "head_camera_net": {
+            "ip": "127.0.0.1",
+            "port": 12348,
+            "realtime_mode": false,
+            "deque_maxlen": 10,
+            "client_timeout_ms": 200
+        },
+        "left_camera_net": {
+            "ip": "127.0.0.1",
+            "port": 12349,
+            "realtime_mode": false,
+            "deque_maxlen": 10,
+            "client_timeout_ms": 200
+        },
+        "right_camera_net": {
+            "ip": "127.0.0.1",
+            "port": 12350,
+            "realtime_mode": false,
+            "deque_maxlen": 10,
+            "client_timeout_ms": 200
+        }
+    }
+}
+
