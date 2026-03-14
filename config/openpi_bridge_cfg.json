@@ -23,6 +23,13 @@
             1.0
         ]
     },
+    "policy_cfg": {
+        "host": "172.18.15.102",
+        "port": 8000,
+        "prompt": "pick up the object",
+        "image_shape": [224, 224],
+        "predict_ns": 20
+    },
     "stable_pos": [
         0.0,
         -1.5,

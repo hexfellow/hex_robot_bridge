@@ -9,15 +9,16 @@
 import argparse
 import io
 import logging
-import queue
 import threading
 import time
+from collections import deque
 from typing import Any
 
 import msgpack
 import numpy as np
 import websockets.sync.client
 from PIL import Image
+from hex_robo_utils import HexRate, ns_now
 
 
 def _pack_array(obj: Any) -> Any:
@@ -95,12 +96,6 @@ def hex_obs() -> dict:
 
 
 class HexOpenpiClient:
-    """
-    整合的 OpenPI WebSocket 客户端：
-    - start(): 连接 server 并启动接收线程
-    - send_obs(obs, ts_ns): 发送 obs 与时间戳（非阻塞）
-    - get_act(): 返回最新的 (act, ts_ns)，无结果时返回 (None, None)
-    """
 
     def __init__(self,
                  host: str = "127.0.0.1",
@@ -113,15 +108,13 @@ class HexOpenpiClient:
         self._api_key = api_key
         self._ws: websockets.sync.client.ClientConnection | None = None
         self._metadata: dict | None = None
-        self._pending_ts_ns: queue.Queue[int | None] = queue.Queue()
-        self._latest_act: dict | None = None
-        self._latest_ts_ns: int | None = None
-        self._lock = threading.Lock()
-        self._recv_thread: threading.Thread | None = None
+        self._obs_deque: deque[tuple[dict, int | None]] = deque()
+        self._act_deque: deque[tuple[dict, int | None]] = deque()
+        self._worker_thread: threading.Thread | None = None
         self._stop = threading.Event()
 
     def start(self) -> dict:
-        """连接 server 并启动接收线程。返回 server 的 metadata。"""
+        """连接 server 并启动工作线程。返回 server 的 metadata。"""
         if self._ws is not None:
             return self._metadata or {}
         logging.info("Connecting to %s ...", self._uri)
@@ -137,55 +130,67 @@ class HexOpenpiClient:
         self._metadata = unpack_response(self._ws.recv())
         logging.info("Server metadata: %s", self._metadata)
         self._stop.clear()
-        self._recv_thread = threading.Thread(target=self._recv_loop,
-                                             daemon=True)
-        self._recv_thread.start()
+        self._worker_thread = threading.Thread(target=self._worker_loop,
+                                               daemon=True)
+        self._worker_thread.start()
         return self._metadata
 
-    def _recv_loop(self) -> None:
+    def _worker_loop(self) -> None:
+        rate = HexRate(2e3)
         while not self._stop.is_set() and self._ws is not None:
-            try:
-                raw = self._ws.recv()
-            except Exception as e:
-                if not self._stop.is_set():
-                    logging.warning("Recv thread error: %s", e)
-                break
-            try:
-                ts_ns = self._pending_ts_ns.get_nowait()
-            except queue.Empty:
-                ts_ns = None
-            if isinstance(raw, str):
-                logging.warning("Server error: %s", raw)
+            rate.sleep()
+            if not self._obs_deque:
                 continue
-            try:
-                act = unpack_response(raw)
-            except Exception as e:
-                logging.warning("Unpack response error: %s", e)
+
+            obs_pair = self._obs_deque.popleft()
+            if obs_pair is None:
                 continue
-            with self._lock:
-                self._latest_act = act
-                self._latest_ts_ns = ts_ns
+
+            obs, ts_ns = obs_pair
+            act = self.__infer(obs)
+            self._act_deque.append((act, ts_ns))
+
+    def __infer(self, obs: dict) -> dict:
+        if self._ws is None:
+            self.connect()
+        self._ws.send(pack_obs(obs))
+        response = self._ws.recv()
+        if isinstance(response, str):
+            raise RuntimeError(f"Server error:\n{response}")
+        return unpack_response(response)
 
     def send_obs(self, obs: dict, ts_ns: int | None = None) -> None:
-        """发送 obs 与时间戳（非阻塞）。接收线程会将结果与 ts_ns 放入队列。"""
+        """将 (obs, ts_ns) 打包放入 obs deque，非阻塞。"""
         if self._ws is None:
             raise RuntimeError("Not connected. Call start() first.")
-        self._pending_ts_ns.put(ts_ns)
-        self._ws.send(pack_obs(obs))
+        self._obs_deque.append((obs, ts_ns))
 
-    def get_act(self) -> tuple[dict | None, int | None]:
-        """返回最新的 (act, ts_ns)，没有则返回 (None, None)。"""
-        with self._lock:
-            act = self._latest_act
-            ts_ns = self._latest_ts_ns
-        return (act, ts_ns)
+    def get_act(self, is_pop: bool = False) -> tuple[dict | None, int | None]:
+        """
+        is_pop=True: 从 act deque 弹出并返回 (act, ts_ns)
+        is_pop=False: 返回最新一对（act deque 末尾），不弹出
+        无结果时返回 (None, None)。
+        """
+        if not self._act_deque:
+            return (None, None)
+        if is_pop:
+            return self._act_deque.popleft()
+        return self._act_deque[-1]
+
+    def wait_act(self, is_pop: bool = False) -> tuple[dict | None, int | None]:
+        """等待 act deque 有结果，返回最新一对（act deque 末尾）。无则 (None, None)。"""
+        while True:
+            act, ts = self.get_act(is_pop=is_pop)
+            if act is not None and ts is not None:
+                return act, ts
+            time.sleep(0.001)
 
     def close(self) -> None:
-        """关闭连接并停止接收线程。"""
+        """关闭连接并停止工作线程。"""
         self._stop.set()
-        if self._recv_thread is not None:
-            self._recv_thread.join(timeout=2.0)
-            self._recv_thread = None
+        if self._worker_thread is not None:
+            self._worker_thread.join(timeout=2.0)
+            self._worker_thread = None
         if self._ws is not None:
             try:
                 self._ws.close()
@@ -193,16 +198,15 @@ class HexOpenpiClient:
                 pass
             self._ws = None
         self._metadata = None
-        with self._lock:
-            self._latest_act = None
-            self._latest_ts_ns = None
+        self._obs_deque.clear()
+        self._act_deque.clear()
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(levelname)s: %(message)s")
     p = argparse.ArgumentParser(description="OpenPI WebSocket policy client")
-    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--host", default="172.18.15.102")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--api-key", default=None)
     p.add_argument("--num-steps", type=int, default=200)
@@ -216,23 +220,18 @@ def main() -> None:
     )
     try:
         client.start()
+        t0 = ns_now()
         for _ in range(2):
-            client.send_obs(hex_obs(), ts_ns=None)
-            time.sleep(0.05)
-            act, ts = client.get_act()
-            logging.info("Warmup: act=%s ts=%s", type(act), ts)
+            client.send_obs(hex_obs(), ts_ns=ns_now() - t0)
+            _, ts = client.wait_act(is_pop=True)
+
         times = []
         for step in range(args.num_steps):
-            t0 = time.perf_counter()
-            client.send_obs(hex_obs(), ts_ns=step)
-            time.sleep(0.001)
-            act, ts = client.get_act()
-            while act is None and ts is None:
-                time.sleep(0.001)
-                act, ts = client.get_act()
-            times.append((time.perf_counter() - t0) * 1000)
-            if (step + 1) % 5 == 0 or step == 0:
-                logging.info("Step %d: %.1f ms", step + 1, times[-1])
+            client.send_obs(hex_obs(), ts_ns=ns_now() - t0)
+            _, ts = client.wait_act(is_pop=True)
+            times.append((ns_now() - ts - t0) / 1e6)
+            print(f"Step {step + 1}: {times[-1]:.1f} ms")
+
         times = np.array(times)
         print("\n--- Client inference (ms) ---")
         print(

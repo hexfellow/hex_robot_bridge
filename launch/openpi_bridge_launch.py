@@ -98,6 +98,12 @@ NODE_PARAMS_DICT = {
                 "kp": YOCO["params"]["robot"]["mit_kp"],
                 "kd": YOCO["params"]["robot"]["mit_kd"],
             },
+            "policy_cfg": {
+                "host": "172.18.15.102",
+                "port": 8000,
+                "prompt": "pick up the object",
+                "image_shape": [224, 224],
+            },
             "yoco":
             YOCO,
             "net": {

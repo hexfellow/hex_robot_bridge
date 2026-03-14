@@ -8,8 +8,10 @@
 
 from .hex_client_base import HexClientBase
 from .hex_script_client_base import HexScriptClientBase
+from .openpi_client import HexOpenpiClient
 
 __all__ = [
     "HexClientBase",
     "HexScriptClientBase",
+    "HexOpenpiClient",
 ]
